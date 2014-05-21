@@ -162,7 +162,8 @@ class Fact(Table):
             if 1146 not in e.args:
                 # If an error other than "table doesn't exists" happens
                 raise
-        return filter(lambda x: x not in ['id', 'created'], cols_names)
+        else:
+            return filter(lambda x: x not in ['id', 'created'], cols_names)
 
     def _get_query(self, historical, index):
         if not historical:
@@ -182,6 +183,7 @@ class Fact(Table):
     def _process_data(self, historical=False, index=0):
         """
         Gets, joins and groups the data.
+
         Outputs the result into 'self.output_cols_names',
         'self.output_cols_types' and 'self.output_data'
 
@@ -229,48 +231,46 @@ class Fact(Table):
         self._import_dimensions()
         self._generate_dim_dict()
 
-        for row in self.output_data:
-            destination_tuple, not_matching = self._map_tuple(
-                self._transform_tuple(row))
+        transformed_rows = [
+            self._transform_tuple(i) for i in self.output_data]
 
-            try:
-                query = """
-                    REPLACE INTO `%s` VALUES (NULL, %s, NULL)
-                    """ % (self.table_name,
-                           self._values_placeholder(
-                                                len(destination_tuple)))
-                self.connection.execute(query, destination_tuple)
-                success_count += 1
-            except Exception, e:
-                self._print_status("MySQL error: %s" % str(
-                                                        destination_tuple))
-                self._print_status("Row after _transform_tuple(): %s" % (
-                                        str(self._transform_tuple(row))))
-                self._print_status("Raw row from DB: %s" % str(row))
-                self._print_status(repr(e))
-                error_count += 1
-
+        mapped_rows = []
+        for row in transformed_rows:
+            mapped_row, not_matching = self._map_tuple(row)
             if not_matching:
                 not_matching_count += 1
+            else:
+                mapped_rows.append(mapped_row)
 
-        msg = "{0} rows inserted, {1} of which don't match the dimensions. " \
-              "{2} errors happened.".format(success_count, not_matching_count,
-                                            error_count)
+        if not mapped_rows:
+            self._print_status('No rows')
+            return
+
+        values_placeholder = self._values_placeholder(len(mapped_rows[0]))
+
+        query = "REPLACE INTO `{}` VALUES (NULL, {}, NULL)".format(
+            self.table_name, values_placeholder)
+
+        # errors = self.connection.insert_many(query, mapped_rows)
+        self.connection.execute(query, mapped_rows, many=True)
+
+        # success_count = len(mapped_rows) - len(errors)
+        success_count = 'foo'
+        error_count = 'bar'
+
+        msg = (
+            "{0} rows inserted, {1} of which don't match the dimensions. "
+            "{2} errors happened.".format(success_count, not_matching_count,
+                                          error_count))
         self._print_status(msg, format='green')
 
     def build(self):
-        """
-        Build only (without updating)
-
-        """
+        """Build only (without updating)."""
         self._process_data()
         self._build()
 
     def update(self):
-        """
-        Updates the fact table with the newest rows.
-
-        """
+        """Updates the fact table with the newest rows."""
         self._process_data(historical=False, index=0)
         self._build()
         self._insert_rows()
@@ -289,8 +289,6 @@ class Fact(Table):
 
     @classmethod
     def public_methods(self):
-        """
-        Returns a list of all public method names on this class.
-        """
+        """Returns a list of all public method names on this class."""
         methods = inspect.getmembers(self, predicate=inspect.ismethod)
         return [i[0] for i in methods if not i[0].startswith('_')]

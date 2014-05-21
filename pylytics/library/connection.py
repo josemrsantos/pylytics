@@ -1,6 +1,7 @@
 """
 Utilities for making database connections easier.
 """
+import math
 
 import MySQLdb
 
@@ -96,6 +97,45 @@ class DB(object):
         if self.connection:
             self.connection.commit()
             self.connection.close()
+
+    def _step_through_batch(self, query, values):
+        """
+        This inserts each row one by one, recording errors along the way, and
+        returning the errors.
+
+        """
+        errors = []
+        for value in values:
+            try:
+                self.execute(query, [value])
+            except Exception as exception:
+                errors.append(exception)
+        return errors
+    
+    def insert_many(self, query, values, batch_size=100):
+        """
+        This is a special case for inserting a large number of rows.
+        
+        It tries to insert a batch of rows. If any of them fail, it steps
+        through and inserts them one at a time. It then tries to insert the
+        next batch of rows, and so on until all rows are inserted.
+
+        A list of errors is returned at the end.
+
+            batch_size: The number of rows inserted in each batch.
+
+        """
+        errors = []
+        batches = [values[x: x + batch_size] for x in xrange(0, len(values),
+                                                             batch_size)]
+        for i, batch in enumerate(batches):
+            print i
+            try:
+                self.execute(query, batch, many=True)                                                    
+            except:
+                errors.append(self._step_through_batch(query, batch))
+
+        return errors
 
     def execute(self, query, values=None, many=False, get_cols=False):
         cursor = None

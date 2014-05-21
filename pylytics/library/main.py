@@ -136,7 +136,7 @@ def run_command(facts, command):
             try:
                 FactClass = get_class(fact)(connection=database_connection)
             except Exception, e:
-                print 'Unable to find fact - {}.'.format(fact)
+                print_status('Unable to find fact - {}.'.format(fact))
             else:
                 fact_classes.append(FactClass)
 

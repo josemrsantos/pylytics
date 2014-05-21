@@ -64,14 +64,15 @@ class Table(object):
         if force:
             query = """
                 SET foreign_key_checks = 0;
-                %s;
+                {};
                 SET foreign_key_checks = 1;
-                """ % query
+                """.format(query)
         try:
             self.connection.execute(query)
         except MySQLdb.IntegrityError:
-            print """--> Table could not be deleted, due to foreign key \
-                constraints. Try removing the fact tables first."""
+            self._print_status(
+                "--> Table could not be deleted, due to foreign key "
+                "constraints. Try removing the fact tables first.")
 
         if self.class_name == 'Fact':
             # Try and drop the corresponding view.
@@ -79,8 +80,8 @@ class Table(object):
             try:
                 self.connection.execute(query)
             except MySQLdb.IntegrityError:
-                self._print_status("Unable to drop view for %s" % (
-                                                            self.table_name))
+                self._print_status("Unable to drop view for {}.".format(
+                    self.table_name))
 
     def build(self):
         """Builds the table."""
