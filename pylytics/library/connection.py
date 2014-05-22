@@ -2,6 +2,7 @@
 Utilities for making database connections easier.
 """
 import math
+import ConfigParser
 
 import MySQLdb
 
@@ -111,8 +112,8 @@ class DB(object):
             except Exception as exception:
                 errors.append(exception)
         return errors
-    
-    def insert_many(self, query, values, batch_size=100):
+
+    def insert_many(self, query, values):
         """
         This is a special case for inserting a large number of rows.
         
@@ -125,6 +126,65 @@ class DB(object):
             batch_size: The number of rows inserted in each batch.
 
         """
+        server_variables_raw = self.execute(
+            "SHOW VARIABLES LIKE 'max_allowed_packet'")
+
+        server_variables = dict(server_variables_raw)
+
+        if 'max_allowed_packet' in server_variables.keys():
+            server_max_allowed_packet = int(server_variables['max_allowed_packet'])
+        else:
+            raise Exception(
+                'Unable to retrieve max_allowed_packet from server.')
+
+        # TODO This is too late ... needs to be loaded in earlier ...
+        # However, can still introspect here for now.
+        if hasattr(settings, 'CLIENT_CONFIG_FILE'):
+            client_config_file_location = settings.CLIENT_CONFIG_FILE
+        else:
+            raise Exception('CLIENT_CONFIG_FILE is missing from settings.py.')
+        
+        client_config_file_location = settings.CLIENT_CONFIG_FILE
+        
+        parser = ConfigParser.SafeConfigParser()
+        parser.read(client_config_file_location)
+        
+        client_max_allowed_packet = parser.get('mysqld', 'max_allowed_packet')
+        
+        if client_max_allowed_packet.upper().endswith('K'):
+            client_max_allowed_packet = int(client_max_allowed_packet[:-1] * 1000)
+        elif client_max_allowed_packet.upper().endswith('M'):
+            client_max_allowed_packet = int(client_max_allowed_packet[:-1] * 1000000)
+        elif client_max_allowed_packet.upper().endswith('G'):
+            client_max_allowed_packet = int(client_max_allowed_packet[:-1] * 1000000000)
+        else:
+            client_max_allowed_packet = int(client_max_allowed_packet)
+        
+        max_allowed_packet = min(client_max_allowed_packet,
+            server_max_allowed_packet)
+        
+        # Now approximating the packet size ...
+            
+        
+        import pdb; pdb.set_trace()
+        # Problem now is comparing the two ...
+        # One can be like this:
+        # 1048576
+        # And the other can be like this:
+        # 10M ...
+        max_allowed_packet = None
+        
+        
+        
+        
+        try:
+            self.execute(query, values, many=True)
+        except Exception as exception:
+            import pdb; pdb.set_trace()
+        
+        
+        
+        
         errors = []
         batches = [values[x: x + batch_size] for x in xrange(0, len(values),
                                                              batch_size)]
@@ -136,6 +196,27 @@ class DB(object):
                 errors.append(self._step_through_batch(query, batch))
 
         return errors
+
+    def _insert_many(self, query, values):
+        """
+        This is a special case for inserting a large number of rows.
+
+        It tries to batch insert all the values, 
+
+        """
+        errors = []
+        batches = [values[x: x + batch_size] for x in xrange(0, len(values),
+                                                             batch_size)]
+        for i, batch in enumerate(batches):
+            print i
+            try:
+                self.execute(query, batch, many=True)
+            except:
+                errors.append(self._step_through_batch(query, batch))
+
+        return errors
+
+
 
     def execute(self, query, values=None, many=False, get_cols=False):
         cursor = None

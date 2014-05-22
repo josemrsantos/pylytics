@@ -251,8 +251,8 @@ class Fact(Table):
         query = "REPLACE INTO `{}` VALUES (NULL, {}, NULL)".format(
             self.table_name, values_placeholder)
 
-        # errors = self.connection.insert_many(query, mapped_rows)
-        self.connection.execute(query, mapped_rows, many=True)
+        errors = self.connection.insert_many(query, mapped_rows)
+        # self.connection.execute(query, mapped_rows, many=True)
 
         # success_count = len(mapped_rows) - len(errors)
         success_count = 'foo'
