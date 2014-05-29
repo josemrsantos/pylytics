@@ -163,15 +163,15 @@ class DB(object):
         max_allowed_packet = min(client_max_allowed_packet,
             server_max_allowed_packet)
         
+        
         # Now approximating the packet size ...
+        # Can get 
+        
             
         
         import pdb; pdb.set_trace()
-        # Problem now is comparing the two ...
-        # One can be like this:
-        # 1048576
-        # And the other can be like this:
-        # 10M ...
+
+
         max_allowed_packet = None
         
         
