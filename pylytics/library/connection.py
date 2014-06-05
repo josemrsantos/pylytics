@@ -4,9 +4,21 @@ Utilities for making database connections easier.
 import math
 import ConfigParser
 
+import warnings
+
 import MySQLdb
 
-import settings
+try:
+    import settings
+except ImportError:
+    # Fall back to empty settings to make testing easier.
+    warnings.warn("No settings defined")
+
+    class Settings(object):
+        pylytics_db = None
+        DATABASES = {}
+
+    settings = Settings()
 
 
 class UnknownColumnTypeError(Exception):
@@ -93,6 +105,12 @@ class DB(object):
             self.connection = MySQLdb.connect(
                     **settings.DATABASES[self.database])
 
+    def commit(self):
+        self.connection.commit()
+
+    def rollback(self):
+        self.connection.rollback()
+
     def close(self):
         """You should always call this after opening a connection."""
         if self.connection:
@@ -112,6 +130,25 @@ class DB(object):
             except Exception as exception:
                 errors.append(exception)
         return errors
+
+    def _get_packet_size(self, query, values):
+        """
+        Approximates the packet size.
+        
+        This follows the same method as used in MySQLdb to generate the
+        query.
+        
+        TODO Might be better off not using executemany at all here.
+        Just use execute?
+        
+        """
+        m = MySQLdb.cursors.insert_values.search(query)
+        p = m.start(1)
+        e = m.end(1)
+        qv = m.group(1)
+        q = [qv % self.connection.literal(a) for a in values]
+        r = '\n'.join([query[:p], ',\n'.join(q), query[e:]])
+        return len(r)
 
     def insert_many(self, query, values):
         """
@@ -151,59 +188,38 @@ class DB(object):
         
         client_max_allowed_packet = parser.get('mysqld', 'max_allowed_packet')
         
-        if client_max_allowed_packet.upper().endswith('K'):
-            client_max_allowed_packet = int(client_max_allowed_packet[:-1] * 1000)
-        elif client_max_allowed_packet.upper().endswith('M'):
-            client_max_allowed_packet = int(client_max_allowed_packet[:-1] * 1000000)
-        elif client_max_allowed_packet.upper().endswith('G'):
-            client_max_allowed_packet = int(client_max_allowed_packet[:-1] * 1000000000)
+        unit_prefix = {
+            'K': 3,
+            'M': 6,
+            'G': 9,
+            }
+
+        client_max_allowed_packet = client_max_allowed_packet.upper()
+
+        if client_max_allowed_packet.endswith(tuple(unit_prefix.keys())):
+            base = client_max_allowed_packet[:-1]
+            prefix = client_max_allowed_packet[-1]
+            client_max_allowed_packet = int(base) * int(math.pow(10, unit_prefix[prefix]))
         else:
             client_max_allowed_packet = int(client_max_allowed_packet)
-        
+
         max_allowed_packet = min(client_max_allowed_packet,
             server_max_allowed_packet)
         
+                
+        # TODO Need unit tests for this too - actually try inserting a billion rows.
+        # will pdb help here???
         
-        # Now approximating the packet size ...
-        # Can get 
-        
-            
-        
-        import pdb; pdb.set_trace()
 
+        packet_size = self._get_packet_size(query, values)
 
-        max_allowed_packet = None
-        
-        
-        
-        
-        try:
-            self.execute(query, values, many=True)
-        except Exception as exception:
-            import pdb; pdb.set_trace()
-        
-        
-        
-        
-        errors = []
-        batches = [values[x: x + batch_size] for x in xrange(0, len(values),
-                                                             batch_size)]
-        for i, batch in enumerate(batches):
-            print i
-            try:
-                self.execute(query, batch, many=True)                                                    
-            except:
-                errors.append(self._step_through_batch(query, batch))
+        packet_iterations = packet_size / max_allowed_packet
 
-        return errors
-
-    def _insert_many(self, query, values):
-        """
-        This is a special case for inserting a large number of rows.
-
-        It tries to batch insert all the values, 
-
-        """
+        if packet_size % max_allowed_packet != 0:
+            packet_iterations += 1
+        
+        batch_size = len(values) / (packet_iterations + 1)
+        
         errors = []
         batches = [values[x: x + batch_size] for x in xrange(0, len(values),
                                                              batch_size)]
@@ -213,8 +229,54 @@ class DB(object):
                 self.execute(query, batch, many=True)
             except:
                 errors.append(self._step_through_batch(query, batch))
-
+        
         return errors
+
+        # TODO We still haven't solved one of the core problems either, which is
+        # isolating values which fail to insert so they all don't fail ...
+
+
+
+
+    def _insert_many(self, query, values):
+        """
+        This is a special case for inserting a large number of rows.
+
+        It tries to batch insert all the values, 
+
+        """
+        # TODO problem now is I'm not gaining very much from just using
+        # executemany, halving, trying executemany, and repeat until 
+        # it stops raising a packet error ... anyway - carry on with this
+        # for now.
+        # Lets imagine we do a query which is 1 GB. The limit is 1 MB.
+        # Halving each time ... we would take ... 10 tries to reach the
+        # limit. And that's the most extreme case.
+        #
+        
+        
+        # A complicating factor here is that ...
+        # you can get this error too when packet size is exceeded:
+        # _mysql_exceptions.OperationalError: (2006, 'MySQL server has gone away')
+        
+        
+        
+        self.execute(query, values, many=True)
+        
+                
+        # errors = []
+        # batches = [values[x: x + batch_size] for x in xrange(0, len(values),
+        #                                                      batch_size)]
+        # for i, batch in enumerate(batches):
+        #     print i
+        #     try:
+        #         self.execute(query, batch, many=True)
+        #     except:
+        #         errors.append(self._step_through_batch(query, batch))
+        # 
+        # return errors
+
+
 
 
 
